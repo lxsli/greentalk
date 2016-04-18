@@ -1,50 +1,219 @@
-<!doctype html>
 <html>
-	<head>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <head>
+        <title>Eventlet tech talk</title>
+        <link rel="stylesheet" href="css/reveal.css">
+        <link rel="stylesheet" href="css/theme/moon.css">
+        <!-- Code highlighting -->
+        <link rel="stylesheet" href="lib/css/zenburn.css">
+    </head>
+    <body>
+        <div class="reveal">
+            <div class="slides">
+                <section>
+                    <h1>Eventlet tech talk</h1>
+                    <h2>Alexis Lee</h2>
+                </section>
+                <section>
+                    <h2>Objectives</h2>
 
-		<title>reveal.js</title>
+                    <ul>
+                        <li>Exploit multicore</li>
+                        <li class='fragment'>Non-blocking IO</li>
+                        <li class='fragment'>Simple coding model</li>
+                    </ul>
+                </section>
+                <section>
+                    <img style='border: black;' src='img/parallelism.jpg'/>
+                    <aside class='notes'>
+                        <p>Can use multiprocessing</p>
+                    </aside>
+                </section>
+                <section>
+                    <section>
+                        <h2>Native threads</h2>
 
-		<link rel="stylesheet" href="css/reveal.css">
-		<link rel="stylesheet" href="css/theme/black.css">
+                        <ul>
+                            <li>External scheduler (EG kernel)</li>
+                            <li class='fragment'>Interruptible at any point</li>
+                            <li class='fragment'>Always require synchronisation</li>
+                            <li class='fragment'>Exploits multicore
+                                <ul><li>Not in CPython, due to GIL</li></ul>
+                            </li>
+                        </ul>
+                    </section>
+                    <section>
+                        <pre><code class="python" data-trim>
+import sys
+import threading
 
-		<!-- Theme used for syntax highlighting of code -->
-		<link rel="stylesheet" href="lib/css/zenburn.css">
+def prn(text):
+    for c in text:
+        sys.stdout.write(c)
 
-		<!-- Printing and PDF exports -->
-		<script>
-			var link = document.createElement( 'link' );
-			link.rel = 'stylesheet';
-			link.type = 'text/css';
-			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
-			document.getElementsByTagName( 'head' )[0].appendChild( link );
-		</script>
-	</head>
-	<body>
-		<div class="reveal">
-			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
-			</div>
-		</div>
+h = threading.Thread(target=prn, args=('Hello,',))
+w = threading.Thread(target=prn, args=(' world!',))
+h.start()
+w.start()
+h.join()
+w.join()
+                        </code></pre>
 
-		<script src="lib/js/head.min.js"></script>
-		<script src="js/reveal.js"></script>
+                        <pre class='fragment'><code class='html' data-trim>
+Hel wloorl,d!
+                        </code></pre>
+                    </section>
+                </section>
+                <section>
+                    <section>
+                        <h2>Eventlets</h2>
 
-		<script>
-			// More info https://github.com/hakimel/reveal.js#configuration
-			Reveal.initialize({
-				history: true,
+                        <ul>
+                            <li>Python scheduler (the eventlet hub)</li>
+                            <li class='fragment'>Yield cooperatively</li>
+                            <li class='fragment'>May never yield</li>
+                            <li class='fragment'>Relies on non-blocking IO</li>
+                        </ul>
+                        <aside class='notes'>
+                            <p>epoll, kqueue or select</p>
+                        </aside>
+                    </section>
+                    <section>
+                        <pre><code class="python" data-trim>
+import eventlet
+eventlet.monkey_patch()
+import sys
 
-				// More info https://github.com/hakimel/reveal.js#dependencies
-				dependencies: [
-					{ src: 'plugin/markdown/marked.js' },
-					{ src: 'plugin/markdown/markdown.js' },
-					{ src: 'plugin/notes/notes.js', async: true },
-					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
-				]
-			});
-		</script>
-	</body>
+def prn(*a):
+    for c in a:
+        sys.stdout.write(c)
+
+h = eventlet.spawn(prn, 'Hello,')
+w = eventlet.spawn(prn, ' world!')
+h.wait()
+w.wait()
+                        </code></pre>
+
+                        <pre class='fragment'><code class='html' data-trim>
+Hello, world!
+                        </code></pre>
+                    </section>
+                </section>
+                <section>
+                    <section>
+                        <h2>Monkey-patching</h2>
+
+                        <pre style='width: 65%'><code class="python" data-trim>
+eventlet.monkey_patch()
+                        </code></pre>
+
+                        <ul>
+                            <li>Introduces yields to stdlib</li>
+                            <li>Should be done as early as possible</li>
+                        </ul>
+                        <img class='fragment' style='border: black; width: 40%; background: none; box-shadow: none;' src='img/monkeypatch.png'/>
+                    </section>
+                    <section>
+                        <dl>
+                            <dt>os</dt><dd>fdopen read write wait waitpid open</dd>
+                            <span class='fragment'><dt>select</dt><dd>select</dd></span>
+                            <span class='fragment'><dt>socket</dt><dd>
+                                fromfd socketpair ssl socket gethostbyname getaddrinfo create_connection
+                            </dd></span>
+                            <span class='fragment'><dt>thread</dt><dd>
+                                get_ident start_new_thread start_new allocate_lock allocate exit
+                                interrupt_main stack_size _local LockType _count
+                            </dd></span>
+                            <span class='fragment'><dt>time</dt><dd>sleep</dd></span>
+                        </dl>
+                    </section>
+                </section>
+                <section>
+                    <h2>Debugging</h2>
+                    <ul>
+                        <li>Guru Meditation Report - SIGUSR2
+                            <ul><li>used to be SIGUSR1</li></ul>
+                        </li>
+                        <li class='fragment'>backdoor</li>
+                        <li class='fragment'>spew</li>
+                        <li class='fragment'>Code instrumentation!</li>
+                    </ul>
+                </section>
+                <section>
+                    <h2>Other implementations</h2>
+
+                    <ul>
+                        <li>gevent</li>
+                        <span class='fragment'>
+                        <li><strike>Stackless</strike></li>
+                        <li>Stackless PyPy</li>
+                        </span>
+                        <li class='fragment'>uGreen</li>
+                        <li class='fragment'>Twisted</li>
+                    </ul>
+                    <aside class='notes'>
+                        <p>gevent is newer than and claims to be faster than eventlet.</p>
+                        <p>uses a native event loop</p>
+                        <br/>
+                        <p>Stackless was invented 5 years before greenlet, which underlies both eventlet and gevent.</p>
+                        <p>Stackless allows thread pre-emption and pickling.</p>
+                        <p>Stackless is used by EVE Online!</p>
+                        <br/>
+                        <p>uGreen is an alternative to greenlet</p>
+                        <p>It seems pretty dead.</p>
+                        <br/>
+                        <p>Twisted offers an async model and generator syntax rather than coroutines per se</p>
+                    </aside>
+                </section>
+                <section>
+                    <section>
+                        <h1>?</h1>
+                    </section>
+                    <section>
+                        <h2>My work</h2>
+
+                        <ul>
+                            <li>Goal: reload logging configuration</li>
+                            <li>Keystone loads logging before monkey-patching</li>
+                            <li>logging uses an RLock to protect its configuration</li>
+                            <li>Py2, this relies on a Lock which freezes the native thread
+                                <ul><li>I swap out this Lock for a greened one</li></ul>
+                            </li>
+                            <li>Py3, the RLock is implemented in C and the owner is wrong
+                                <ul><li>I swap out the whole RLock for a Python one</li></ul>
+                            </li>
+                            <li><a href='https://github.com/eventlet/eventlet/pull/309'>https://github.com/eventlet/eventlet/pull/309</a></li>
+                        </ul>
+                    </section>
+                </section>
+            </div>
+        </div>
+        <script src="lib/js/head.min.js"></script>
+        <script src="js/reveal.js"></script>
+        <script>
+Reveal.initialize({
+    controls: false,
+    transition: 'convex',
+    dependencies: [
+        // Cross-browser shim that fully implements classList - https://github.com/eligrey/classList.js/
+        { src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+
+        // Interpret Markdown in <section> elements
+        { src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+        { src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+
+        // Syntax highlight for <code> elements
+        { src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+
+        // Zoom in and out with Alt+click
+        { src: 'plugin/zoom-js/zoom.js', async: true },
+
+        // Speaker notes
+        { src: 'plugin/notes/notes.js', async: true },
+
+        // MathJax
+        // { src: 'plugin/math/math.js', async: true }
+    ]
+});
+        </script>
+    </body>
 </html>
