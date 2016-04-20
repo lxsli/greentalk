@@ -33,6 +33,7 @@
                         <h2>Native threads</h2>
 
                         <ul>
+                            <li>Heavyweight</li>
                             <li>External scheduler (EG kernel)</li>
                             <li class='fragment'>Interruptible at any point</li>
                             <li class='fragment'>Always require synchronisation</li>
@@ -68,6 +69,7 @@ Hel wloorl,d!
                         <h2>Eventlets</h2>
 
                         <ul>
+                            <li>Very lightweight</li>
                             <li>Python scheduler (the eventlet hub)</li>
                             <li class='fragment'>Yield cooperatively</li>
                             <li class='fragment'>May never yield</li>
@@ -80,11 +82,11 @@ Hel wloorl,d!
                     <section>
                         <pre><code class="python" data-trim>
 import eventlet
-eventlet.monkey_patch()
+eventlet.monkey_patch(os=False)
 import sys
 
-def prn(*a):
-    for c in a:
+def prn(text):
+    for c in text:
         sys.stdout.write(c)
 
 h = eventlet.spawn(prn, 'Hello,')
@@ -120,7 +122,7 @@ eventlet.monkey_patch()
                                 fromfd socketpair ssl socket gethostbyname getaddrinfo create_connection
                             </dd></span>
                             <span class='fragment'><dt>thread</dt><dd>
-                                get_ident start_new_thread start_new allocate_lock allocate exit
+                                <b>get_ident</b> start_new_thread start_new allocate_lock allocate exit
                                 interrupt_main stack_size _local LockType _count
                             </dd></span>
                             <span class='fragment'><dt>time</dt><dd>sleep</dd></span>
@@ -173,7 +175,7 @@ eventlet.monkey_patch()
 
                         <ul>
                             <li>Goal: reload logging configuration</li>
-                            <li>Keystone loads logging before monkey-patching</li>
+                            <li>Keystone loads oslo.config + hence logging before monkey-patching</li>
                             <li>logging uses an RLock to protect its configuration</li>
                             <li>Py2, this relies on a Lock which freezes the native thread
                                 <ul><li>I swap out this Lock for a greened one</li></ul>
